@@ -1,70 +1,264 @@
-import { Image, StyleSheet, Platform } from 'react-native';
+import { Image, StyleSheet, Button, Platform, ScrollView, Text, View  } from 'react-native';
 
 import { HelloWave } from '@/components/HelloWave';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import "react-native-get-random-values";
+import "react-native-url-polyfill/auto";
+import { clusterApiUrl, Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import bs58 from "bs58";
+import { Buffer } from "buffer";
+import * as Linking from "expo-linking";
+import { StatusBar } from "expo-status-bar";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import nacl from "tweetnacl";
+
+global.Buffer = global.Buffer || Buffer;
+
+const NETWORK = clusterApiUrl("devnet");
+
+const onConnectRedirectLink = Linking.createURL("onConnect");
+const onDisconnectRedirectLink = Linking.createURL("onDisconnect");
+const onSignAndSendTransactionRedirectLink = Linking.createURL("onSignAndSendTransaction");
+
+/**
+ * If true, uses universal links instead of deep links. This is the recommended way for dapps
+ * and Phantom to handle deeplinks as we own the phantom.app domain.
+ *
+ * Set this to false to use normal deeplinks, starting with phantom://. This is easier for
+ * debugging with a local build such as Expo Dev Client builds.
+ */
+const useUniversalLinks = false;
+const buildUrl = (path: string, params: URLSearchParams) =>
+  `${useUniversalLinks ? "https://phantom.app/ul/" : "phantom://"}v1/${path}?${params.toString()}`;
+
+const decryptPayload = (data: string, nonce: string, sharedSecret?: Uint8Array) => {
+  if (!sharedSecret) throw new Error("missing shared secret");
+
+  const decryptedData = nacl.box.open.after(bs58.decode(data), bs58.decode(nonce), sharedSecret);
+  if (!decryptedData) {
+    throw new Error("Unable to decrypt data");
+  }
+  return JSON.parse(Buffer.from(decryptedData).toString("utf8"));
+};
+
+const encryptPayload = (payload: any, sharedSecret?: Uint8Array) => {
+  if (!sharedSecret) throw new Error("missing shared secret");
+
+  const nonce = nacl.randomBytes(24);
+
+  const encryptedPayload = nacl.box.after(
+    Buffer.from(JSON.stringify(payload)),
+    nonce,
+    sharedSecret
+  );
+
+  return [nonce, encryptedPayload];
+};
+
 
 export default function HomeScreen() {
+  const [deepLink, setDeepLink] = useState<string>("");
+  const [logs, setLogs] = useState<string[]>([]);
+  const connection = new Connection(NETWORK);
+  const addLog = useCallback((log: string) => setLogs((logs) => [...logs, "> " + log]), []);
+  const clearLog = useCallback(() => setLogs(() => []), []);
+  const scrollViewRef = useRef<any>(null);
+
+  // store dappKeyPair, sharedSecret, session and account SECURELY on device
+  // to avoid having to reconnect users.
+  const [dappKeyPair] = useState(nacl.box.keyPair());
+  const [sharedSecret, setSharedSecret] = useState<Uint8Array>();
+  const [session, setSession] = useState<string>();
+  const [phantomWalletPublicKey, setPhantomWalletPublicKey] = useState<PublicKey>();
+
+  useEffect(() => {
+    (async () => {
+      const initialUrl = await Linking.getInitialURL();
+      if (initialUrl) {
+        setDeepLink(initialUrl);
+      }
+    })();
+    const subscription = Linking.addEventListener("url", handleDeepLink);
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const handleDeepLink = ({ url }: Linking.EventType) => {
+    setDeepLink(url);
+  };
+
+  // handle inbounds links
+  useEffect(() => {
+    if (!deepLink) return;
+
+    const url = new URL(deepLink);
+    const params = url.searchParams;
+
+    if (params.get("errorCode")) {
+      addLog(JSON.stringify(Object.fromEntries([...params]), null, 2));
+      return;
+    }
+
+    if (/onConnect/.test(url.pathname || url.host)) {
+      console.log( "phantom_encryption_public_key", bs58.decode(params.get("phantom_encryption_public_key")!));
+      
+      const sharedSecretDapp = nacl.box.before(
+        bs58.decode(params.get("phantom_encryption_public_key")!),
+        dappKeyPair.secretKey
+      );
+      console.log("sharedSecretDapp", sharedSecretDapp);
+
+      const connectData = decryptPayload(
+        params.get("data")!,
+        params.get("nonce")!,
+        sharedSecretDapp
+      );
+
+      setSharedSecret(sharedSecretDapp);
+      setSession(connectData.session);
+      setPhantomWalletPublicKey(new PublicKey(connectData.public_key));
+
+      console.log("Public Key: ", phantomWalletPublicKey);
+
+      addLog(JSON.stringify(connectData, null, 2));
+    } else if (/onDisconnect/.test(url.pathname || url.host)) {
+      setPhantomWalletPublicKey(undefined);
+      addLog("Disconnected!");
+    } else if (/onSignAndSendTransaction/.test(url.pathname || url.host)) {
+      console.log("params", params);
+      console.log("Public Key: ", phantomWalletPublicKey);
+
+      const signAndSendTransactionData = decryptPayload(
+        params.get("data")!,
+        params.get("nonce")!,
+        sharedSecret
+      );
+
+      console.log("signAndSendTransactionData", signAndSendTransactionData);
+
+      addLog(JSON.stringify(signAndSendTransactionData, null, 2));
+    }
+  }, [deepLink]);
+
+  const createTransferTransaction = async () => {
+    if (!phantomWalletPublicKey) throw new Error("missing public key from user");
+    const transaction = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: phantomWalletPublicKey,
+        toPubkey: phantomWalletPublicKey,
+        lamports: 100
+      })
+    );
+    transaction.feePayer = phantomWalletPublicKey;
+    addLog("Getting recent blockhash");
+    const anyTransaction: any = transaction;
+    anyTransaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    return transaction;
+  };
+
+  const connect = async () => {
+    const params = new URLSearchParams({
+      dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
+      cluster: "devnet",
+      app_url: "https://phantom.app",
+      redirect_link: onConnectRedirectLink
+    });
+
+    const url = buildUrl("connect", params);
+    Linking.openURL(url);
+  };
+
+  const disconnect = async () => {
+    const payload = {
+      session
+    };
+    const [nonce, encryptedPayload] = encryptPayload(payload, sharedSecret);
+
+    const params = new URLSearchParams({
+      dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
+      nonce: bs58.encode(nonce),
+      redirect_link: onDisconnectRedirectLink,
+      payload: bs58.encode(encryptedPayload)
+    });
+
+    const url = buildUrl("disconnect", params);
+    Linking.openURL(url);
+  };
+
+  const signAndSendTransaction = async () => {
+    const transaction = await createTransferTransaction();
+
+    const serializedTransaction = transaction.serialize({
+      requireAllSignatures: false
+    });
+
+    const payload = {
+      session,
+      transaction: bs58.encode(serializedTransaction)
+    };
+    const [nonce, encryptedPayload] = encryptPayload(payload, sharedSecret);
+
+    const params = new URLSearchParams({
+      dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
+      nonce: bs58.encode(nonce),
+      redirect_link: onSignAndSendTransactionRedirectLink,
+      payload: bs58.encode(encryptedPayload)
+    });
+
+    addLog("Sending transaction...");
+    const url = buildUrl("signAndSendTransaction", params);
+    Linking.openURL(url);
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({ ios: 'cmd + d', android: 'cmd + m' })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <View style={{ flex: 1, backgroundColor: "#333" }}>
+      <StatusBar style="light" />
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          contentContainerStyle={{
+            backgroundColor: "#111",
+            padding: 20,
+            paddingTop: 100,
+            flexGrow: 1
+          }}
+          ref={scrollViewRef}
+          onContentSizeChange={() => {
+            scrollViewRef.current.scrollToEnd({ animated: true });
+          }}
+          style={{ flex: 1 }}
+        >
+          {logs.map((log, i) => (
+            <Text
+              key={`t-${i}`}
+              style={{
+                fontFamily: Platform.OS === "ios" ? "Courier New" : "monospace",
+                color: "#fff",
+                fontSize: 14
+              }}
+            >
+              {log}
+            </Text>
+          ))}
+        </ScrollView>
+      </View>
+      <View style={{ flex: 0, paddingTop: 20, paddingBottom: 40 }}>
+        <Btn title="Connect" onPress={connect} />
+        <Btn title="Disconnect" onPress={disconnect} />
+        <Btn title="Sign And Send Transaction" onPress={signAndSendTransaction} />
+        <Btn title="Snapshot NFT" onPress={signAndSendTransaction} />
+        <Btn title="Clear Logs" onPress={clearLog} />
+      </View>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
-});
+const Btn = ({ title, onPress }: { title: string; onPress: () => void | Promise<void> }) => {
+  return (
+    <View style={{ marginVertical: 10 }}>
+      <Button title={title} onPress={onPress} />
+    </View>
+  );
+};
