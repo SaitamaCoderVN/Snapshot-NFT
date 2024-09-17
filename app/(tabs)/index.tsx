@@ -6,13 +6,19 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import "react-native-get-random-values";
 import "react-native-url-polyfill/auto";
-import { clusterApiUrl, Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { Keypair, clusterApiUrl, Connection, PublicKey, SystemProgram, Transaction, SendTransactionError } from "@solana/web3.js";
 import bs58 from "bs58";
 import { Buffer } from "buffer";
 import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import nacl from "tweetnacl";
+import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
+import { mplTokenMetadata, createNft } from '@metaplex-foundation/mpl-token-metadata';
+import { keypairIdentity, generateSigner,  percentAmount } from '@metaplex-foundation/umi';
+import { fromWeb3JsKeypair, fromWeb3JsPublicKey, toWeb3JsInstruction, toWeb3JsTransaction } from "@metaplex-foundation/umi-web3js-adapters";
+import type { Umi } from "@metaplex-foundation/umi";
+import { base58 } from "@metaplex-foundation/umi-serializers";
 
 global.Buffer = global.Buffer || Buffer;
 
@@ -57,6 +63,11 @@ const encryptPayload = (payload: any, sharedSecret?: Uint8Array) => {
   return [nonce, encryptedPayload];
 };
 
+export function createUmiInstance(keypair: Keypair): Umi {
+  return createUmi(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com')
+    .use(mplTokenMetadata())
+    .use(keypairIdentity(fromWeb3JsKeypair(keypair)));
+}
 
 export default function HomeScreen() {
   const [deepLink, setDeepLink] = useState<string>("");
@@ -148,8 +159,8 @@ export default function HomeScreen() {
     const transaction = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: phantomWalletPublicKey,
-        toPubkey: phantomWalletPublicKey,
-        lamports: 100
+        toPubkey: new PublicKey("38rc27bLd73QUDKmiDBQjsmbXpxinx8metaPFsRPSCWi"),
+        lamports: 10000000
       })
     );
     transaction.feePayer = phantomWalletPublicKey;
@@ -195,6 +206,8 @@ export default function HomeScreen() {
       requireAllSignatures: false
     });
 
+    console.log("serializedTransaction", serializedTransaction);
+
     const payload = {
       session,
       transaction: bs58.encode(serializedTransaction)
@@ -211,6 +224,95 @@ export default function HomeScreen() {
     addLog("Sending transaction...");
     const url = buildUrl("signAndSendTransaction", params);
     Linking.openURL(url);
+  };
+
+  const snapshotNft = async () => {
+    try {
+      console.log("phantomWalletPublicKey", phantomWalletPublicKey);
+      // Mint NFT
+      const keypair = Keypair.fromSecretKey(
+        bs58.decode(
+          "3zyQ2fvRd6hSBfPjQMtQhsXXTL9ftQd61oNdfuBFcbGdxGfo1yVBjehWgiznB1EXL6SSd1ZuEv5E56jCw6yRqbDr"
+        )
+      );
+
+      console.log("keypair", keypair.publicKey);
+      const umi = createUmiInstance(keypair);
+      const mint = generateSigner(umi);
+      console.log("mint", mint);
+
+      // =========================================================================
+      // No use Phantom deeplink
+      
+      let tx;
+
+      tx = await createNft(umi, {
+        mint: mint,
+        sellerFeeBasisPoints: percentAmount(5.5),
+        name: "My Compressed NFT",
+        uri: "https://peach-realistic-spider-498.mypinata.cloud/ipfs/QmQNEoAnnNmyacZmEMTSH39B2E2SMMB89fHZHZjyu5yd3R",
+      }).sendAndConfirm(umi, {
+        send: { skipPreflight: true, commitment: "confirmed", maxRetries: 3 },
+      });
+
+      const signature = base58.deserialize(tx.signature)[0];
+
+      console.log(
+        "transaction: ",
+        `https://explorer.solana.com/tx/${signature}?cluster=devnet`
+      );
+
+      // =========================================================================
+      // Use Phantom deeplink
+      // Error: Phantom deeplink not working
+
+      // const builder = await createNft(umi, {
+      //   mint,
+      //   name: 'My Compressed NFT',
+      //   symbol: "MCNFT",
+      //   uri: "https://peach-realistic-spider-498.mypinata.cloud/ipfs/QmQNEoAnnNmyacZmEMTSH39B2E2SMMB89fHZHZjyu5yd3R",
+      //   sellerFeeBasisPoints: percentAmount(500),
+      //   tokenOwner: phantomWalletPublicKey ? fromWeb3JsPublicKey(phantomWalletPublicKey) : undefined,
+      // });
+
+      // const ixs = builder.getInstructions().map(toWeb3JsInstruction);
+
+      // const transaction = new Transaction().add(...ixs);
+
+      // transaction.feePayer = phantomWalletPublicKey;
+      // transaction.recentBlockhash = (await connection.getLatestBlockhash("finalized")).blockhash;
+      // console.log("transaction", transaction);
+
+      // const serializedTransaction = transaction.serialize({
+      //   requireAllSignatures: false
+      // });
+
+      // console.log("Raw transaction:", serializedTransaction.toString('base64'));
+      // addLog("Raw transaction: " + serializedTransaction.toString('base64'));
+
+      // console.log("serializedTransaction", serializedTransaction);
+
+      // const payload = {
+      //   session,
+      //   transaction: bs58.encode(serializedTransaction)
+      // };
+      // const [nonce, encryptedPayload] = encryptPayload(payload, sharedSecret);
+
+      // const params = new URLSearchParams({
+      //   dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
+      //   nonce: bs58.encode(nonce),
+      //   redirect_link: onSignAndSendTransactionRedirectLink,
+      //   payload: bs58.encode(encryptedPayload)
+      // });
+
+      // addLog("Sending transaction...");
+      // const url = buildUrl("signAndSendTransaction", params);
+      // Linking.openURL(url);
+
+    } catch (error) {
+      console.error("Lỗi:", error);
+      addLog("Error: " + (error as Error).message);
+    }
   };
 
   return (
@@ -248,7 +350,7 @@ export default function HomeScreen() {
         <Btn title="Connect" onPress={connect} />
         <Btn title="Disconnect" onPress={disconnect} />
         <Btn title="Sign And Send Transaction" onPress={signAndSendTransaction} />
-        <Btn title="Snapshot NFT" onPress={signAndSendTransaction} />
+        <Btn title="Snapshot NFT" onPress={snapshotNft} />
         <Btn title="Clear Logs" onPress={clearLog} />
       </View>
     </View>
