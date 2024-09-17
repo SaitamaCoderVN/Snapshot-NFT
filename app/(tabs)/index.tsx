@@ -19,6 +19,7 @@ import { keypairIdentity, generateSigner,  percentAmount } from '@metaplex-found
 import { fromWeb3JsKeypair, fromWeb3JsPublicKey, toWeb3JsInstruction, toWeb3JsTransaction } from "@metaplex-foundation/umi-web3js-adapters";
 import type { Umi } from "@metaplex-foundation/umi";
 import { base58 } from "@metaplex-foundation/umi-serializers";
+import CameraScreen from '@/components/Camera';
 
 global.Buffer = global.Buffer || Buffer;
 
@@ -27,6 +28,7 @@ const NETWORK = clusterApiUrl("devnet");
 const onConnectRedirectLink = Linking.createURL("onConnect");
 const onDisconnectRedirectLink = Linking.createURL("onDisconnect");
 const onSignAndSendTransactionRedirectLink = Linking.createURL("onSignAndSendTransaction");
+const onSnapshotNftRedirectLink = Linking.createURL("snapshotNft");
 
 /**
  * If true, uses universal links instead of deep links. This is the recommended way for dapps
@@ -76,6 +78,7 @@ export default function HomeScreen() {
   const addLog = useCallback((log: string) => setLogs((logs) => [...logs, "> " + log]), []);
   const clearLog = useCallback(() => setLogs(() => []), []);
   const scrollViewRef = useRef<any>(null);
+  const [isCameraVisible, setCameraVisible] = useState(false);
 
   // store dappKeyPair, sharedSecret, session and account SECURELY on device
   // to avoid having to reconnect users.
@@ -151,6 +154,24 @@ export default function HomeScreen() {
       console.log("signAndSendTransactionData", signAndSendTransactionData);
 
       addLog(JSON.stringify(signAndSendTransactionData, null, 2));
+    } else if (/snapshotNft/.test(url.pathname || url.host)) {
+      console.log("params", params);
+      console.log("Public Key: ", phantomWalletPublicKey);
+
+
+      const snapshotNftData = decryptPayload(
+        params.get("data")!,
+
+        params.get("nonce")!,
+
+        sharedSecret
+      );
+
+      console.log("snapshotNftData", snapshotNftData);
+
+
+      addLog(JSON.stringify(snapshotNftData, null, 2));
+
     }
   }, [deepLink]);
 
@@ -241,6 +262,54 @@ export default function HomeScreen() {
       const mint = generateSigner(umi);
       console.log("mint", mint);
 
+      
+      // =========================================================================
+      // Use Phantom deeplink
+      // Error: Phantom deeplink not working
+
+      const builder = await createNft(umi, {
+        mint,
+        name: 'Shit NFT',
+        uri: "https://peach-realistic-spider-498.mypinata.cloud/ipfs/QmQNEoAnnNmyacZmEMTSH39B2E2SMMB89fHZHZjyu5yd3R",
+        sellerFeeBasisPoints: percentAmount(5.5),
+      });
+
+      const ixs = builder.getInstructions().map(toWeb3JsInstruction);
+
+      const transaction = new Transaction().add(...ixs);
+
+      transaction.feePayer = phantomWalletPublicKey;
+      transaction.recentBlockhash = (await connection.getLatestBlockhash("finalized")).blockhash;
+      console.log("transaction", transaction);
+
+      const serializedTransaction = transaction.serialize({
+        requireAllSignatures: false
+      });
+
+      console.log("Raw transaction:", serializedTransaction.toString('base64'));
+      addLog("Raw transaction: " + serializedTransaction.toString('base64'));
+
+      console.log("serializedTransaction", serializedTransaction);
+
+      const payload = {
+        session,
+        transaction: bs58.encode(serializedTransaction)
+      };
+      const [nonce, encryptedPayload] = encryptPayload(payload, sharedSecret);
+
+      const params = new URLSearchParams({
+        dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
+        nonce: bs58.encode(nonce),
+        redirect_link: onSnapshotNftRedirectLink,
+        payload: bs58.encode(encryptedPayload)
+      });
+
+      addLog("Sending transaction...");
+      const url = buildUrl("signTransaction", params);
+      await Linking.openURL(url);
+
+      console.log("============================================");
+
       // =========================================================================
       // No use Phantom deeplink
       
@@ -262,57 +331,46 @@ export default function HomeScreen() {
         `https://explorer.solana.com/tx/${signature}?cluster=devnet`
       );
 
-      // =========================================================================
-      // Use Phantom deeplink
-      // Error: Phantom deeplink not working
+      addLog(`Transaction successfull: ${signature}`);
 
-      // const builder = await createNft(umi, {
-      //   mint,
-      //   name: 'My Compressed NFT',
-      //   symbol: "MCNFT",
-      //   uri: "https://peach-realistic-spider-498.mypinata.cloud/ipfs/QmQNEoAnnNmyacZmEMTSH39B2E2SMMB89fHZHZjyu5yd3R",
-      //   sellerFeeBasisPoints: percentAmount(500),
-      //   tokenOwner: phantomWalletPublicKey ? fromWeb3JsPublicKey(phantomWalletPublicKey) : undefined,
-      // });
+      // // Chờ phản hồi từ ví Phantom
+      // const result = await waitForRedirect();
 
-      // const ixs = builder.getInstructions().map(toWeb3JsInstruction);
-
-      // const transaction = new Transaction().add(...ixs);
-
-      // transaction.feePayer = phantomWalletPublicKey;
-      // transaction.recentBlockhash = (await connection.getLatestBlockhash("finalized")).blockhash;
-      // console.log("transaction", transaction);
-
-      // const serializedTransaction = transaction.serialize({
-      //   requireAllSignatures: false
-      // });
-
-      // console.log("Raw transaction:", serializedTransaction.toString('base64'));
-      // addLog("Raw transaction: " + serializedTransaction.toString('base64'));
-
-      // console.log("serializedTransaction", serializedTransaction);
-
-      // const payload = {
-      //   session,
-      //   transaction: bs58.encode(serializedTransaction)
-      // };
-      // const [nonce, encryptedPayload] = encryptPayload(payload, sharedSecret);
-
-      // const params = new URLSearchParams({
-      //   dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
-      //   nonce: bs58.encode(nonce),
-      //   redirect_link: onSignAndSendTransactionRedirectLink,
-      //   payload: bs58.encode(encryptedPayload)
-      // });
-
-      // addLog("Sending transaction...");
-      // const url = buildUrl("signAndSendTransaction", params);
-      // Linking.openURL(url);
+      // if (result && result.signature) {
+      //   const signature = result.signature;
+      //   console.log(
+      //     "Giao dịch: ",
+      //     `https://explorer.solana.com/tx/${signature}?cluster=devnet`
+      //   );
+      //   addLog(`Giao dịch đã được ký: ${signature}`);
+      // } else {
+      //   console.log("Không nhận được chữ ký từ ví Phantom");
+      //   addLog("Lỗi: Không nhận được chữ ký từ ví Phantom");
+      // }
+      // );
 
     } catch (error) {
       console.error("Lỗi:", error);
       addLog("Error: " + (error as Error).message);
+      console.log("Error: " + (error as Error).message);
     }
+  };
+
+  const waitForRedirect = (): Promise<{ signature: string }> => {
+    return new Promise((resolve) => {
+      const handleRedirect = ({ url }: Linking.EventType) => {
+        const params = new URL(url).searchParams;
+        const signature = params.get("signature");
+        if (signature) {
+          resolve({ signature });
+        }
+      };
+
+      const subscription = Linking.addEventListener("url", handleRedirect);
+      return () => {
+        subscription.remove();
+      };
+    });
   };
 
   return (
@@ -346,13 +404,15 @@ export default function HomeScreen() {
           ))}
         </ScrollView>
       </View>
-      <View style={{ flex: 0, paddingTop: 20, paddingBottom: 40 }}>
+      <View >
         <Btn title="Connect" onPress={connect} />
         <Btn title="Disconnect" onPress={disconnect} />
         <Btn title="Sign And Send Transaction" onPress={signAndSendTransaction} />
         <Btn title="Snapshot NFT" onPress={snapshotNft} />
+        <Btn title="Camera" onPress={() => setCameraVisible(true)} />
         <Btn title="Clear Logs" onPress={clearLog} />
       </View>
+      <CameraScreen visible={isCameraVisible} onClose={() => setCameraVisible(false)} />
     </View>
   );
 }
