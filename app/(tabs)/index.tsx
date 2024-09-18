@@ -1,4 +1,5 @@
 import { Image, StyleSheet, Button, Platform, ScrollView, Text, View  } from 'react-native';
+import 'react-native-url-polyfill/auto';
 
 import { HelloWave } from '@/components/HelloWave';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
@@ -20,15 +21,20 @@ import { fromWeb3JsKeypair, fromWeb3JsPublicKey, toWeb3JsInstruction, toWeb3JsTr
 import type { Umi } from "@metaplex-foundation/umi";
 import { base58 } from "@metaplex-foundation/umi-serializers";
 import CameraScreen from '@/components/Camera';
+import { usePhantomWallet } from '@/context/PhantomWalletContext';
+import { saveSharedSecret, getSharedSecret, saveSession, getSession } from '@/utils/storage';
 
 global.Buffer = global.Buffer || Buffer;
+global.process = process;
 
 const NETWORK = clusterApiUrl("devnet");
 
-const onConnectRedirectLink = Linking.createURL("onConnect");
-const onDisconnectRedirectLink = Linking.createURL("onDisconnect");
-const onSignAndSendTransactionRedirectLink = Linking.createURL("onSignAndSendTransaction");
-const onSnapshotNftRedirectLink = Linking.createURL("snapshotNft");
+export const onConnectRedirectLink = Linking.createURL("onConnect");
+export const onDisconnectRedirectLink = Linking.createURL("onDisconnect");
+export const onSignAndSendTransactionRedirectLink = Linking.createURL("onSignAndSendTransaction");
+export const onSnapshotNftRedirectLink = Linking.createURL("snapshotNft");
+
+export const [dappKeyPair] = useState(nacl.box.keyPair());
 
 /**
  * If true, uses universal links instead of deep links. This is the recommended way for dapps
@@ -38,10 +44,10 @@ const onSnapshotNftRedirectLink = Linking.createURL("snapshotNft");
  * debugging with a local build such as Expo Dev Client builds.
  */
 const useUniversalLinks = false;
-const buildUrl = (path: string, params: URLSearchParams) =>
+export const buildUrl = (path: string, params: URLSearchParams) =>
   `${useUniversalLinks ? "https://phantom.app/ul/" : "phantom://"}v1/${path}?${params.toString()}`;
 
-const decryptPayload = (data: string, nonce: string, sharedSecret?: Uint8Array) => {
+export const decryptPayload = (data: string, nonce: string, sharedSecret?: Uint8Array) => {
   if (!sharedSecret) throw new Error("missing shared secret");
 
   const decryptedData = nacl.box.open.after(bs58.decode(data), bs58.decode(nonce), sharedSecret);
@@ -51,7 +57,7 @@ const decryptPayload = (data: string, nonce: string, sharedSecret?: Uint8Array) 
   return JSON.parse(Buffer.from(decryptedData).toString("utf8"));
 };
 
-const encryptPayload = (payload: any, sharedSecret?: Uint8Array) => {
+export const encryptPayload = (payload: any, sharedSecret?: Uint8Array) => {
   if (!sharedSecret) throw new Error("missing shared secret");
 
   const nonce = nacl.randomBytes(24);
@@ -72,6 +78,7 @@ export function createUmiInstance(keypair: Keypair): Umi {
 }
 
 export default function HomeScreen() {
+  const { phantomWalletPublicKey, setPhantomWalletPublicKey } = usePhantomWallet();
   const [deepLink, setDeepLink] = useState<string>("");
   const [logs, setLogs] = useState<string[]>([]);
   const connection = new Connection(NETWORK);
@@ -82,10 +89,9 @@ export default function HomeScreen() {
 
   // store dappKeyPair, sharedSecret, session and account SECURELY on device
   // to avoid having to reconnect users.
-  const [dappKeyPair] = useState(nacl.box.keyPair());
+
   const [sharedSecret, setSharedSecret] = useState<Uint8Array>();
   const [session, setSession] = useState<string>();
-  const [phantomWalletPublicKey, setPhantomWalletPublicKey] = useState<PublicKey>();
 
   useEffect(() => {
     (async () => {
@@ -133,6 +139,8 @@ export default function HomeScreen() {
 
       setSharedSecret(sharedSecretDapp);
       setSession(connectData.session);
+      saveSharedSecret(sharedSecretDapp);
+      saveSession(connectData.session);
       setPhantomWalletPublicKey(new PublicKey(connectData.public_key));
 
       console.log("Public Key: ", phantomWalletPublicKey);
@@ -140,7 +148,7 @@ export default function HomeScreen() {
       addLog(JSON.stringify(connectData, null, 2));
     } else if (/onDisconnect/.test(url.pathname || url.host)) {
       setPhantomWalletPublicKey(undefined);
-      addLog("Disconnected!");
+      addLog("Đã ngắt kết nối!");
     } else if (/onSignAndSendTransaction/.test(url.pathname || url.host)) {
       console.log("params", params);
       console.log("Public Key: ", phantomWalletPublicKey);
@@ -253,7 +261,7 @@ export default function HomeScreen() {
       // Mint NFT
       const keypair = Keypair.fromSecretKey(
         bs58.decode(
-          "3zyQ2fvRd6hSBfPjQMtQhsXXTL9ftQd61oNdfuBFcbGdxGfo1yVBjehWgiznB1EXL6SSd1ZuEv5E56jCw6yRqbDr"
+          process.env.PRIVATE_KEY!
         )
       );
 
@@ -372,6 +380,8 @@ export default function HomeScreen() {
       };
     });
   };
+
+  
 
   return (
     <View style={{ flex: 1, backgroundColor: "#333" }}>

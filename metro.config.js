@@ -1,13 +1,17 @@
-// Learn more https://docs.expo.io/guides/customizing-metro
 const { getDefaultConfig } = require('expo/metro-config');
 
-/** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+const defaultConfig = getDefaultConfig(__dirname);
 
-module.exports = {
-  ...config,
-  resolver: {
-    ...config.resolver,
-    unstable_enablePackageExports: true,
-  },
+defaultConfig.resolver.extraNodeModules = {
+  stream: require.resolve('readable-stream'),
+  crypto: require.resolve('react-native-crypto'),
+  https: require.resolve('https-browserify'),
+  http: require.resolve('stream-http'),
+  url: require.resolve('url/'),
+  buffer: require.resolve('buffer/'),
+  process: require.resolve('process/browser'),
+  'safe-buffer': require.resolve('safe-buffer'),
+  'text-encoding': require.resolve('text-encoding'),
 };
+
+module.exports = defaultConfig;

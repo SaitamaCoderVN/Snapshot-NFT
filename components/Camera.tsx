@@ -1,12 +1,15 @@
 import { CameraView, CameraType, useCameraPermissions, Camera } from 'expo-camera';
 import { useState, useRef } from 'react';
-import { Button, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
+import { Button, StyleSheet, Text, TouchableOpacity, View, Modal, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
+import ChoosePicture from '@/components/ChoosePicture';
 
 export default function CameraScreen({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [facing, setFacing] = useState<CameraType>('back');
   const [permission, requestPermission] = useCameraPermissions();
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [showChoosePicture, setShowChoosePicture] = useState(false);
   const cameraRef = useRef<CameraView>(null);
 
   if (!permission) {
@@ -36,6 +39,7 @@ export default function CameraScreen({ visible, onClose }: { visible: boolean; o
         return;
       }
       console.log(photo);
+      setPhotoUri(photo.uri);
 
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status === 'granted') {
@@ -50,6 +54,9 @@ export default function CameraScreen({ visible, onClose }: { visible: boolean; o
       } else {
         console.log('Permission to access media library is not granted');
       }
+
+      // Chuyển sang component ChoosePicture
+      setShowChoosePicture(true);
     }
   }
 
@@ -62,12 +69,18 @@ export default function CameraScreen({ visible, onClose }: { visible: boolean; o
     >
       <View style={styles.modalContainer}>
         <View style={styles.container}>
-          <CameraView ref={cameraRef} style={styles.camera} facing={facing}/>
-          </View>
-          <View>
-            <Btn title="Flip Camera" onPress={toggleCameraFacing} />
-            <Btn title="Take Picture" onPress={takePicture} />
-            <Btn title="Close" onPress={onClose} />
+          {showChoosePicture ? (
+            <ChoosePicture visible={showChoosePicture} onClose={() => setShowChoosePicture(false)} photoUri={photoUri} />
+          ) : (
+            <>
+              <CameraView ref={cameraRef} style={styles.camera} facing={facing}/>
+              <View>
+                <Btn title="Flip Camera" onPress={toggleCameraFacing} />
+                <Btn title="Take Picture" onPress={takePicture} />
+                <Btn title="Close" onPress={onClose} />
+              </View>
+            </>
+          )}
         </View>
       </View>
     </Modal>
@@ -110,6 +123,11 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
+  },
+  preview: {
+    width: '100%',
+    height: 200,
+    marginTop: 10,
   },
 });
 
