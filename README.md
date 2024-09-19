@@ -4,8 +4,8 @@
 
 <table>
   <tr>
-    <td align="center" colspan="3">
-      <img src="./assets/demo_product.gif" alt="Demo Product GIF" width=900 />
+    <td align="center" colspan="1">
+      <img src="./assets/demo_product.gif" alt="Demo Product GIF" width=200 />
     </td>
   </tr>
 </table>
