@@ -1,5 +1,5 @@
 import { CameraView, CameraType, useCameraPermissions, Camera } from 'expo-camera';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button, StyleSheet, Text, View, Modal, Image } from 'react-native';
 import * as Location from 'expo-location';
 import { TextInput } from 'react-native-paper';
@@ -8,7 +8,7 @@ import { supabase } from "./supabase";
 import { usePhantomWallet } from '@/context/PhantomWalletContext';
 import { Keypair, clusterApiUrl, Connection, PublicKey, SystemProgram, Transaction, SendTransactionError } from "@solana/web3.js";
 import bs58 from "bs58";
-import { generateSigner,  percentAmount } from '@metaplex-foundation/umi';
+import { generateSigner, percentAmount } from '@metaplex-foundation/umi';
 import { createNft } from '@metaplex-foundation/mpl-token-metadata';
 import { buildUrl, createUmiInstance, dappKeyPair, encryptPayload, onSnapshotNftRedirectLink } from '@/app/(tabs)';
 import { decode } from "base64-arraybuffer";
@@ -28,19 +28,21 @@ interface ChoosePictureProps {
 export default function ChoosePicture({ visible, onClose, photoUri: initialPhotoUri }: ChoosePictureProps) {
   const { phantomWalletPublicKey } = usePhantomWallet();
   const [permission, requestPermission] = useCameraPermissions();
-  const [photoUri, setPhotoUri] = useState<string | null>(initialPhotoUri);
+  const [photoUri, setPhotoUri] = useState<string>(initialPhotoUri!);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [text, setText] = useState('Waiting..');
-  const [nameNFT, setNameNFT] = useState('');
+  const [nameNFT, setNameNFT] = useState<string | null>(null);
   const [sharedSecret, setSharedSecret] = useState<Uint8Array | null>(null);
   const [session, setSession] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState<string | null>(null);
+  const [newFileNameJson, setNewFileNameJson] = useState<string | null>(null);
+  const [hasRun, setHasRun] = useState<boolean>(false);
+  const [signature, setSignature] = useState<string | null>(null);
 
   const connection = new Connection(NETWORK);
 
   const [bucket, setBucket] = useState(process.env.EXPO_PUBLIC_SUPABASE_STORAGE_BUCKET!);
-  console.log("bucket", process.env.EXPO_PUBLIC_SUPABASE_STORAGE_BUCKET);
 
   useEffect(() => {
     (async () => {
@@ -54,7 +56,7 @@ export default function ChoosePicture({ visible, onClose, photoUri: initialPhoto
     })();
   }, []);
 
-  const reverseGeocode = async() => {
+  const reverseGeocode = async () => {
     const reverseGeocodeAddress = await Location.reverseGeocodeAsync({
       longitude: location?.coords.longitude!,
       latitude: location?.coords.latitude!,
@@ -93,6 +95,35 @@ export default function ChoosePicture({ visible, onClose, photoUri: initialPhoto
       }
     })();
   }, []);
+  
+
+  useEffect(() => {
+    const copyPhoto = async () => {
+      if (hasRun === true) return;
+      setHasRun(true);
+
+      try {
+        const newFileNameImage = `nft_image_${Date.now()}`;
+        setNewFileName(newFileNameImage);
+
+        
+
+        const newFilePathImage = `${FileSystem.documentDirectory}public/images/${newFileNameImage}`;
+        
+        await FileSystem.copyAsync({
+          from: photoUri,
+          to: newFilePathImage
+        });
+        setPhotoUri(newFilePathImage);
+      } catch (error) {
+        console.error("Error copying photo:", error);
+      }
+    };
+
+    if (photoUri && hasRun === false) {
+      copyPhoto();
+    }
+  }, [photoUri, hasRun]);
 
   if (!permission) {
     return <View />;
@@ -108,82 +139,41 @@ export default function ChoosePicture({ visible, onClose, photoUri: initialPhoto
   }
 
   const createNFT = async () => {
-    console.log("phantomWalletPublicKey", phantomWalletPublicKey);
-    console.log("photoUri", photoUri);
 
     if (!photoUri) {
       alert("No photo selected.");
       return;
     }
 
-    try {
-      const newFileName = `nft_image_${Date.now()}.jpg`;
-      setNewFileName(newFileName);
-      const newFilePath = `${FileSystem.documentDirectory}public/${newFileName}`;
-      
-      await FileSystem.copyAsync({
-        from: photoUri,
-        to: newFilePath
-      });
-
-      console.log("newFilePath", newFilePath);
-      setPhotoUri(newFilePath);
-      console.log("Updated photoUri", newFilePath);
-    } catch (error) {
-      console.error("Error:", error);
-      alert("Error. Please try again.");
-      return;
-    }
-
-    console.log(" new photoUri", photoUri);
-
-    // if (!phantomWalletPublicKey || !photoUri) {
-    //   alert("Minting failed. Missing account or photo.");
-    //   return;
-    // }
-
     const locationData = location?.coords;
-    console.log("locationData", locationData);
-    // if (!locationData) {
-    //   alert("Minting failed. Location coordinates not found.");
-    //   return;
-    // }
 
     try {
       const base64ImageFile = await FileSystem.readAsStringAsync(photoUri!, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      console.log("base64ImageFile");
-      // console.log("base64ImageFile", base64ImageFile);
-      console.log("newFileName", newFileName);
       const { data: imageResponse, error: imageError } = await supabase.storage
         .from(bucket)
         .upload(
-          `public/${newFileName}.jpg`,
+          `public/images/${newFileName}.jpg`,
           decode(base64ImageFile),
           {
+            contentType: "image/jpg",
             upsert: true,
           }
         );
-
-      console.log("imageResponse", imageResponse);
 
       if (imageError) {
         alert("Minting failed. Error uploading image.");
         return;
       }
 
-      console.log("imageResponse", imageResponse);
-
       const { data: storedFile } = supabase.storage
         .from(bucket)
         .getPublicUrl(imageResponse?.path || "");
 
-      console.log("storedFile", storedFile.publicUrl);
-
       const metadata = {
-        name: nameNFT,
-        description: "This NFT was minted with location data.",
+        name: nameNFT!,
+        description: text,
         image: storedFile.publicUrl,
         attributes: [
           { trait_type: "Latitude", value: locationData?.latitude },
@@ -192,13 +182,41 @@ export default function ChoosePicture({ visible, onClose, photoUri: initialPhoto
         creators: [{ address: phantomWalletPublicKey?.toBase58() || "", share: 100 }],
       };
 
-      // console.log("metadata", metadata);
+      const newFileNameJson = `nft_metadata_${Date.now()}`;
+      setNewFileNameJson(newFileNameJson);
 
+      const newFilePathJson = `${FileSystem.documentDirectory}public/metadata/${newFileNameJson}.jpg`;
+      
+      await FileSystem.makeDirectoryAsync(`${FileSystem.documentDirectory}public/metadata/`, { intermediates: true });
+      await FileSystem.writeAsStringAsync(newFilePathJson, JSON.stringify(metadata), {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      // Đọc nội dung của file metadata
+      const metadataContent = await FileSystem.readAsStringAsync(newFilePathJson, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      
+      console.log(`Content of public/metadata/${newFileNameJson}.jpg:`);
+      console.log(metadataContent);
+
+      const base64ImageFileJson = await FileSystem.readAsStringAsync(newFilePathJson, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+        
       const { data: metadataResponse, error: metadataError } = await supabase.storage
         .from(bucket)
-        .upload(photoUri!, JSON.stringify(metadata), { contentType: "application/json", upsert: true });
+        .upload(
+          `public/metadata/${newFileNameJson}.jpg`,
+          JSON.stringify(metadata),
+          { 
+            contentType: "application/json", 
+            upsert: true 
+          }
+        );
 
       if (metadataError) {
+        console.log("metadataError", metadataError);
         alert("Minting failed. Error uploading metadata.");
         return;
       }
@@ -207,100 +225,85 @@ export default function ChoosePicture({ visible, onClose, photoUri: initialPhoto
         .from(bucket)
         .getPublicUrl(metadataResponse.path);
 
-      // Mint NFT
       const keypair = Keypair.fromSecretKey(
         bs58.decode(
-          process.env.PRIVATE_KEY!
+          process.env.EXPO_PUBLIC_PRIVATE_KEY!.toString()
         )
       );
 
-      const umi = createUmiInstance(keypair);
+      try {
+        const umi = createUmiInstance(keypair);
+        const mint = generateSigner(umi);
 
-      const mint = generateSigner(umi);
-      
-      // console.log("mint", mint);
+        // =========================================================================
+        // Use Phantom deeplink
+        // Error: Phantom deeplink not working
+  
+        const builder = await createNft(umi, {
+          mint: mint,
+          sellerFeeBasisPoints: percentAmount(5.5),
+          name: metadata.name.toString(),
+          uri: metadataUri.publicUrl.toString(),
+        });
 
-      // =========================================================================
-      // Use Phantom deeplink
-      // Error: Phantom deeplink not working
+        const ixs = builder.getInstructions().map(toWeb3JsInstruction);
 
-      const builder = await createNft(umi, {
-        mint: mint,
-        sellerFeeBasisPoints: percentAmount(5.5),
-        name: metadata.name,
-        uri: metadataUri.publicUrl,
-      });
+        const transaction = new Transaction().add(...ixs);
 
-      const ixs = builder.getInstructions().map(toWeb3JsInstruction);
+        transaction.feePayer = phantomWalletPublicKey;
+        transaction.recentBlockhash = (await connection.getLatestBlockhash("finalized")).blockhash;
 
-      const transaction = new Transaction().add(...ixs);
+        const serializedTransaction = transaction.serialize({
+          requireAllSignatures: false
+        });
 
-      transaction.feePayer = phantomWalletPublicKey;
-      transaction.recentBlockhash = (await connection.getLatestBlockhash("finalized")).blockhash;
-      console.log("transaction", transaction);
+        const payload = {
+          session,
+          transaction: bs58.encode(serializedTransaction)
+        };
 
-      const serializedTransaction = transaction.serialize({
-        requireAllSignatures: false
-      });
+        const [nonce, encryptedPayload] = encryptPayload(payload, sharedSecret!);
 
-      console.log("Raw transaction:", serializedTransaction.toString('base64'));
-      alert("Raw transaction: " + serializedTransaction.toString('base64'));
+        const params = new URLSearchParams({
+          dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
+          nonce: bs58.encode(nonce),
+          redirect_link: onSnapshotNftRedirectLink,
+          payload: bs58.encode(encryptedPayload)
+        });
 
-      console.log("serializedTransaction", serializedTransaction);
+        const url = buildUrl("signTransaction", params);
+        await Linking.openURL(url);
 
-      const payload = {
-        session,
-        transaction: bs58.encode(serializedTransaction)
-      };
+        // =========================================================================
+        // No use Phantom deeplink
+        
+        let tx;
 
-      const [nonce, encryptedPayload] = encryptPayload(payload, sharedSecret!);
+        tx = await createNft(umi, {
+          mint: mint,
+          sellerFeeBasisPoints: percentAmount(5.5),
+          name: metadata.name.toString(),
+          uri: metadataUri.publicUrl.toString(),
+        }).sendAndConfirm(umi, {
+          send: { skipPreflight: true, commitment: "confirmed", maxRetries: 3 },
+        });
 
-      const params = new URLSearchParams({
-        dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
-        nonce: bs58.encode(nonce),
-        redirect_link: onSnapshotNftRedirectLink,
-        payload: bs58.encode(encryptedPayload)
-      });
+        const signature = base58.deserialize(tx.signature)[0];
 
-      alert("Sending transaction...");
-      const url = buildUrl("signTransaction", params);
-      await Linking.openURL(url);
+        console.log(
+          "transaction: ",
+          `https://explorer.solana.com/tx/${signature}?cluster=devnet`
+        );
 
-      console.log("============================================");
+        setSignature(signature);
 
-      // =========================================================================
-      // No use Phantom deeplink
-      
-      let tx;
-
-      tx = await createNft(umi, {
-        mint: mint,
-        sellerFeeBasisPoints: percentAmount(5.5),
-        name: metadata.name,
-        uri: metadataUri.publicUrl,
-      }).sendAndConfirm(umi, {
-        send: { skipPreflight: true, commitment: "confirmed", maxRetries: 3 },
-      });
-
-      const signature = base58.deserialize(tx.signature)[0];
-
-      console.log(
-        "transaction: ",
-        `https://explorer.solana.com/tx/${signature}?cluster=devnet`
-      );
-
-      alert(`Transaction successfull: ${signature}`);
-
-      // await createNft(umi, {
-      //   mint,
-      //   sellerFeeBasisPoints: percentAmount(5.5),
-      //   name: metadata.name,
-      //   uri: metadataUri.publicUrl,
-      // }).sendAndConfirm(umi, { send: { skipPreflight: true, commitment: "confirmed", maxRetries: 3 } });
-      
-      console.log("NFT minted successfully!");
+      } catch (error) {
+        console.log("error", error);
+      }
 
       alert("NFT minted successfully!");
+      alert(`Transaction successfull: https://explorer.solana.com/tx/${signature}?cluster=devnet`);
+
     } catch (error) {
       console.error("Error minting NFT:", error);
       alert("Minting failed. Check console for details.");
@@ -325,7 +328,7 @@ export default function ChoosePicture({ visible, onClose, photoUri: initialPhoto
           <TextInput
             style={styless.paragraph}
             placeholder='Name of the NFT'
-            value={nameNFT}
+            value={nameNFT!}
             onChangeText={setNameNFT}
           />
           <View>

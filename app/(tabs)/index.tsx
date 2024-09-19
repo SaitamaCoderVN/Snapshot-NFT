@@ -148,7 +148,7 @@ export default function HomeScreen() {
       addLog(JSON.stringify(connectData, null, 2));
     } else if (/onDisconnect/.test(url.pathname || url.host)) {
       setPhantomWalletPublicKey(undefined);
-      addLog("Đã ngắt kết nối!");
+      addLog("Disconnected!");
     } else if (/onSignAndSendTransaction/.test(url.pathname || url.host)) {
       console.log("params", params);
       console.log("Public Key: ", phantomWalletPublicKey);
@@ -261,7 +261,7 @@ export default function HomeScreen() {
       // Mint NFT
       const keypair = Keypair.fromSecretKey(
         bs58.decode(
-          process.env.PRIVATE_KEY!
+          process.env.PRIVATE_KEY!.toString()
         )
       );
 
@@ -341,22 +341,6 @@ export default function HomeScreen() {
 
       addLog(`Transaction successfull: ${signature}`);
 
-      // // Chờ phản hồi từ ví Phantom
-      // const result = await waitForRedirect();
-
-      // if (result && result.signature) {
-      //   const signature = result.signature;
-      //   console.log(
-      //     "Giao dịch: ",
-      //     `https://explorer.solana.com/tx/${signature}?cluster=devnet`
-      //   );
-      //   addLog(`Giao dịch đã được ký: ${signature}`);
-      // } else {
-      //   console.log("Không nhận được chữ ký từ ví Phantom");
-      //   addLog("Lỗi: Không nhận được chữ ký từ ví Phantom");
-      // }
-      // );
-
     } catch (error) {
       console.error("Lỗi:", error);
       addLog("Error: " + (error as Error).message);
@@ -417,9 +401,9 @@ export default function HomeScreen() {
       <View >
         <Btn title="Connect" onPress={connect} />
         <Btn title="Disconnect" onPress={disconnect} />
-        <Btn title="Sign And Send Transaction" onPress={signAndSendTransaction} />
-        <Btn title="Snapshot NFT" onPress={snapshotNft} />
-        <Btn title="Camera" onPress={() => setCameraVisible(true)} />
+        {/* <Btn title="Sign And Send Transaction" onPress={signAndSendTransaction} /> */}
+        {/* <Btn title="Snapshot NFT" onPress={snapshotNft} /> */}
+        <Btn title="Take Picture and Mint NFT Location" onPress={() => setCameraVisible(true)} />
         <Btn title="Clear Logs" onPress={clearLog} />
       </View>
       <CameraScreen visible={isCameraVisible} onClose={() => setCameraVisible(false)} />
