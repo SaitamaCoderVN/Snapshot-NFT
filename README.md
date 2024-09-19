@@ -1,50 +1,78 @@
-# Welcome to your Expo app 👋
+# Solana NFT Minter
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## This project is built upon the [Solana Mobile Connect Phantom Expo Template](https://github.com/phantom/deep-link-demo-app.git)
 
-## Get started
+<table>
+  <tr>
+    <td align="center" colspan="3">
+      <img src="./assets/demo_product.gif" alt="Demo Product GIF" width=900 />
+    </td>
+  </tr>
+</table>
 
-1. Install dependencies
+## Technologies Used
 
-   ```bash
-   npm install
-   ```
+| Library              | Type              | Version  | Description                                            |
+| -------------------- | ----------------- | -------- | ------------------------------------------------------ |
+| React Native         | Mobile Framework  | v0.74.5  | Cross-platform mobile app development framework        |
+| Expo                 | SDK               | v51.0.32 | Supports React Native app development and deployment   |
+| React                | UI Framework      | v18.2.0  | Popular JavaScript library for building user interfaces|
+| Mobile Wallet Adapter| SDK               | v2.0     | Connects and requests signatures from mobile wallets   |
+| Solana web3.js       | SDK               | v1.95.3  | Solana library for transactions and RPC                |
+| Metaplex             | SDK               | v3.2.1   | Library for creating and managing NFTs on Solana       |
+| React Native Paper   | Component Library | v5.12.5  | UI component library for React Native                  |
+| React Navigation     | Navigation        | v6       | Navigation library for React Native                    |
+| TypeScript           | Language          | v5.3.3   | Statically typed programming language                  |
+| AsyncStorage         | Persistence       | v1       | Local data storage for React Native                    |
 
-2. Start the app
+## Quick Start
 
-   ```bash
-    npx expo start
-   ```
+### Requirements
 
-In the output, you'll find options to open the app in a
+- A free [Expo](https://expo.dev/) account.
+- Android device/emulator for testing the app
+  - Install an MWA-compatible wallet app on your device/emulator.
+- If using Expo's cloud service `eas build`, no additional setup is needed.
+- For local builds:
+  - Set up React Native and Android environment
+    [guide](https://docs.solanamobile.com/getting-started/development-setup)
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Initialization
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+Run the following CLI commands:
 
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+git clone https://github.com/your-repo/snapshotNFT-Solana.git
+cd snapshotNFT-Solana
+yarn
+yarn start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### Building and Running the App
 
-## Learn more
+After initializing the app, follow the
+**["Running the app"](https://docs.solanamobile.com/react-native/expo#running-the-app)**
+guide to launch the sample as a custom development build.
 
-To learn more about developing your project with Expo, look at the following resources:
+## Notes
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- This app is fully functional only on Android. iOS is not supported.
+- The project uses the `expo-camera` plugin, which is not supported on Android emulators for Expo v50.0.0 and below. Testing must be done on a physical Android device. For more information, see
+  [platform compatibility](https://docs.expo.dev/versions/v50.0.0/sdk/camera/#platform-compatibility)
 
-## Join the community
+## Key Features
 
-Join our community of developers creating universal apps.
+- Connect with Phantom wallet
+- Capture photos and retrieve GPS location
+- Create and mint NFTs with metadata including image and location information
+- Upload images and metadata to Supabase
+- Mint NFTs on Solana Devnet
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Current Issues
+
+- Minting NFTs through Phantom deeplink is currently problematic. NFTs are being minted directly without going through the Phantom wallet.
+- Error handling and user experience need improvement.
+
+For more information on creating NFTs on Solana, refer to:
+- [Metaplex JavaScript SDK](https://github.com/metaplex-foundation/js?tab=readme-ov-file#metaplex-javascript-sdk)
+- [NFT Creation Guide](https://developers.metaplex.com/token-metadata/guides/javascript/create-an-nft)
